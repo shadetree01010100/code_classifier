@@ -1,13 +1,16 @@
 import csv
-
+import os
 import numpy as np
 import tensorflow as tf
-
 from text_encoder import *
-from stackoverflow import StackOverflowScraper
+
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # supress TF build warnings
 
 
 line_length = 80
+epochs = 50
+print_interval = 1
 
 lines = []
 labels = []
@@ -25,20 +28,24 @@ with open('test_stackoverflow.csv', newline='', encoding='utf-8') as csvfile:
         test_labels.append([int(row[0])])
         test_lines.append(encode_line(row[1]))
 
-epochs = 10
+lines = np.array(lines)
+labels = np.array(labels)
+test_lines = np.array(test_lines)
+lest_labels = np.array(test_labels)
 with tf.Session() as sess:
     print('building model')
+    tf.set_random_seed(1)
     # input 1 line of line_length chars of one of 96 classes
-    X = tf.placeholder(tf.float32, [line_length, 96])
-    # outputs classified line
-    Y_ = tf.placeholder(tf.float32, [1])
+    X = tf.placeholder(tf.float32, [None, line_length, 96])
+    # known label for that line
+    Y_ = tf.placeholder(tf.float32, [None, 1])
     W0 = tf.Variable(tf.truncated_normal([line_length * 96, 80]))
+    b0 = tf.Variable(tf.truncated_normal([80]))
     W1 = tf.Variable(tf.truncated_normal([80, 1]))
-    # b0 = tf.Variable(tf.truncated_normal([line_length, 96]))
-    # Y = tf.nn.sigmoid(tf.matmul(X, W0) + b0)
+    b1 = tf.Variable(tf.truncated_normal([1]))
     XX = tf.reshape(X, [-1, line_length * 96])
-    H1 = tf.nn.sigmoid(tf.matmul(XX, W0))
-    Y = tf.nn.sigmoid(tf.matmul(H1, W1))
+    H1 = tf.nn.sigmoid(tf.matmul(XX, W0) + b0)
+    Y = tf.nn.sigmoid(tf.matmul(H1, W1) + b1)
 
     loss_func = abs(Y_ - Y)
     train_step = tf.train.GradientDescentOptimizer(0.1).minimize(loss_func)
@@ -48,8 +55,10 @@ with tf.Session() as sess:
     print('pre-train benchmark: ', end='')
     accuracies = []
     for i, line in enumerate(test_lines):
-        label = np.array(test_labels[i])
-        prediction = sess.run(Y, feed_dict={X: line, Y_: label})
+        label = test_labels[i]
+        _batch = np.expand_dims(line, axis=0)
+        _label = np.expand_dims(label, axis=0)
+        prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
         accuracy = (test_labels[i] == prediction.round()).all(axis=-1)
         accuracies.append(accuracy)
     print(np.mean(accuracies))
@@ -58,21 +67,25 @@ with tf.Session() as sess:
     for epoch in range(epochs):
         losses = []
         for i, line in enumerate(lines):
-            label = np.array(labels[i])
+            label = labels[i]
+            _batch = np.expand_dims(line, axis=0)
+            _label = np.expand_dims(label, axis=0)
             _, loss, prediction = sess.run(
-                    [train_step, loss_func, Y], feed_dict={X: line, Y_: label})
+                    [train_step, loss_func, Y], feed_dict={X: _batch, Y_: _label})
             losses.append(loss)
-        if (not epoch) or (not (epoch + 1) % 1):  # mod value sets epochs per print
+        if (not epoch) or (not (epoch + 1) % print_interval):
             print('\tloss: ', np.mean(losses))
 
     print('trained perfromance: ', end='')
     accuracies = []
     predictions= []
     for i, line in enumerate(test_lines):
-        label = np.array(test_labels[i])
-        prediction = sess.run(Y, feed_dict={X: line, Y_: label})
-        # accuracy = (test_labels[i] == prediction.round()).all(axis=-1)
-        accuracy = test_labels[i] == prediction.round()
+        label = test_labels[i]
+        _batch = np.expand_dims(line, axis=0)
+        _label = np.expand_dims(label, axis=0)
+        prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
+        accuracy = (test_labels[i] == prediction.round()).all(axis=-1)
+        # accuracy = test_labels[i] == prediction.round()
         accuracies.append(accuracy)
         predictions.append(prediction)
     print(np.mean(accuracies))
