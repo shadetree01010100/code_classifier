@@ -9,7 +9,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # supress TF build warnings
 
 
 line_length = 80
-epochs = 50
+epochs = 10
 print_interval = 1
 
 lines = []
@@ -34,7 +34,7 @@ test_lines = np.array(test_lines)
 lest_labels = np.array(test_labels)
 with tf.Session() as sess:
     print('building model')
-    tf.set_random_seed(1)
+    # tf.set_random_seed(1)
     # input 1 line of line_length chars of one of 96 classes
     X = tf.placeholder(tf.float32, [None, line_length, 96])
     # known label for that line
@@ -43,7 +43,7 @@ with tf.Session() as sess:
     b0 = tf.Variable(tf.truncated_normal([80]))
     W1 = tf.Variable(tf.truncated_normal([80, 1]))
     b1 = tf.Variable(tf.truncated_normal([1]))
-    XX = tf.reshape(X, [-1, line_length * 96])
+    XX = tf.reshape(X, [-1, line_length * 96]) #  flatten for dense layers
     H1 = tf.nn.sigmoid(tf.matmul(XX, W0) + b0)
     Y = tf.nn.sigmoid(tf.matmul(H1, W1) + b1)
 
