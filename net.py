@@ -12,10 +12,15 @@ line_length = 80
 char_classes = 96
 
 # RUN OPTIONS
-epochs = 10
+epochs = 20
 print_interval = 1
 
-# NN OPTIONS
+# CNN LAYERS
+C0_depth = 4
+C0_width = 3
+C0_stride = 1
+
+# NN LAYERS
 outputs = 1
 H0_count = 80
 
@@ -47,8 +52,13 @@ with tf.Session() as sess:
     # desired output, known label for that line
     Y_ = tf.placeholder(tf.float32, [None, outputs])
 
-    flattened_length = line_length * char_classes
-    XX = tf.reshape(X, [-1, flattened_length]) #  flatten for dense layers
+    CW0 = tf.Variable(tf.truncated_normal([C0_width, char_classes, C0_depth]))
+    CB0 = tf.Variable(tf.truncated_normal([C0_depth]))
+    C0 = tf.nn.relu(tf.nn.conv1d(X, CW0, C0_stride, 'SAME') + CB0)
+
+    flattened_length = C0_depth * H0_count
+    XX = tf.reshape(C0, [-1, flattened_length]) #  flatten for dense layers
+
     W0 = tf.Variable(tf.truncated_normal([flattened_length, H0_count]))
     B0 = tf.Variable(tf.truncated_normal([H0_count]))
     W1 = tf.Variable(tf.truncated_normal([H0_count, outputs]))
