@@ -7,10 +7,17 @@ from text_encoder import *
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # supress TF build warnings
 
-
+# INPUT OPTIONS
 line_length = 80
+char_classes = 96
+
+# RUN OPTIONS
 epochs = 10
 print_interval = 1
+
+# NN OPTIONS
+outputs = 1
+H0_count = 80
 
 lines = []
 labels = []
@@ -35,17 +42,20 @@ lest_labels = np.array(test_labels)
 with tf.Session() as sess:
     print('building model')
     # tf.set_random_seed(1)
-    # input 1 line of line_length chars of one of 96 classes
-    X = tf.placeholder(tf.float32, [None, line_length, 96])
-    # known label for that line
-    Y_ = tf.placeholder(tf.float32, [None, 1])
-    W0 = tf.Variable(tf.truncated_normal([line_length * 96, 80]))
-    b0 = tf.Variable(tf.truncated_normal([80]))
-    W1 = tf.Variable(tf.truncated_normal([80, 1]))
-    b1 = tf.Variable(tf.truncated_normal([1]))
-    XX = tf.reshape(X, [-1, line_length * 96]) #  flatten for dense layers
-    H1 = tf.nn.sigmoid(tf.matmul(XX, W0) + b0)
-    Y = tf.nn.sigmoid(tf.matmul(H1, W1) + b1)
+    # input, 1 line of line_length chars of one of char_classes
+    X = tf.placeholder(tf.float32, [None, line_length, char_classes])
+    # desired output, known label for that line
+    Y_ = tf.placeholder(tf.float32, [None, outputs])
+
+    flattened_length = line_length * char_classes
+    XX = tf.reshape(X, [-1, flattened_length]) #  flatten for dense layers
+    W0 = tf.Variable(tf.truncated_normal([flattened_length, H0_count]))
+    B0 = tf.Variable(tf.truncated_normal([H0_count]))
+    W1 = tf.Variable(tf.truncated_normal([H0_count, outputs]))
+    B1 = tf.Variable(tf.truncated_normal([outputs]))
+
+    H0 = tf.nn.sigmoid(tf.matmul(XX, W0) + B0)
+    Y = tf.nn.sigmoid(tf.matmul(H0, W1) + B1)
 
     loss_func = abs(Y_ - Y)
     train_step = tf.train.GradientDescentOptimizer(0.1).minimize(loss_func)
