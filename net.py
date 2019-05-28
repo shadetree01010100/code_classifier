@@ -2,11 +2,22 @@ import csv
 import os
 import numpy as np
 import tensorflow as tf
+
 from text_encoder import *
 
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # supress TF build warnings
+def _open(filename):
+    """ Helper method to open(filename) with appropriate args."""
+    return open(filename, newline='', encoding='utf-8')
 
+# supress TF build info logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# Force compatability of convolution on RTX series GPU
+# https://github.com/tensorflow/tensorflow/issues/24496
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+
+# CNN CONFIG
 # INPUT OPTIONS
 line_length = 80
 char_classes = 96
@@ -21,30 +32,10 @@ C0_width = 3
 C0_stride = 1
 
 # NN LAYERS
-outputs = 1
 H0_count = 80
+outputs = 1
 
-lines = []
-labels = []
-test_lines = []
-test_labels = []
-
-with open('train_stackoverflow.csv', newline='', encoding='utf-8') as csvfile:
-    train_data = csv.reader(csvfile)
-    for row in train_data:
-        labels.append([int(row[0])])
-        lines.append(encode_line(row[1]))
-with open('test_stackoverflow.csv', newline='', encoding='utf-8') as csvfile:
-    test_data = csv.reader(csvfile)
-    for row in test_data:
-        test_labels.append([int(row[0])])
-        test_lines.append(encode_line(row[1]))
-
-lines = np.array(lines)
-labels = np.array(labels)
-test_lines = np.array(test_lines)
-lest_labels = np.array(test_labels)
-with tf.Session() as sess:
+with tf.Session(config=config) as sess:
     print('building model')
     # tf.set_random_seed(1)
     # input, 1 line of line_length chars of one of char_classes
@@ -52,68 +43,95 @@ with tf.Session() as sess:
     # desired output, known label for that line
     Y_ = tf.placeholder(tf.float32, [None, outputs])
 
+    # convolutional layers
     CW0 = tf.Variable(tf.truncated_normal([C0_width, char_classes, C0_depth]))
     CB0 = tf.Variable(tf.truncated_normal([C0_depth]))
     C0 = tf.nn.relu(tf.nn.conv1d(X, CW0, C0_stride, 'SAME') + CB0)
 
+    # flatten for input to neural network layers
     flattened_length = C0_depth * H0_count
-    XX = tf.reshape(C0, [-1, flattened_length]) #  flatten for dense layers
+    XX = tf.reshape(C0, [-1, flattened_length])
 
+    # hidden layers
     W0 = tf.Variable(tf.truncated_normal([flattened_length, H0_count]))
     B0 = tf.Variable(tf.truncated_normal([H0_count]))
+    H0 = tf.nn.sigmoid(tf.matmul(XX, W0) + B0)
+    # output layer
     W1 = tf.Variable(tf.truncated_normal([H0_count, outputs]))
     B1 = tf.Variable(tf.truncated_normal([outputs]))
-
-    H0 = tf.nn.sigmoid(tf.matmul(XX, W0) + B0)
     Y = tf.nn.sigmoid(tf.matmul(H0, W1) + B1)
 
     loss_func = abs(Y_ - Y)
-    train_step = tf.train.GradientDescentOptimizer(0.1).minimize(loss_func)
+    train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss_func)
 
+    print('initializing variables')
     sess.run(tf.global_variables_initializer())
 
     print('pre-train benchmark: ', end='')
     accuracies = []
-    for i, line in enumerate(test_lines):
-        label = test_labels[i]
-        _batch = np.expand_dims(line, axis=0)
-        _label = np.expand_dims(label, axis=0)
-        prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
-        accuracy = (test_labels[i] == prediction.round()).all(axis=-1)
-        accuracies.append(accuracy)
+    with _open('test_stackoverflow.csv') as csvfile:
+        test_data = csv.reader(csvfile)
+        for row in test_data:
+            try:
+                # batch size = 1
+                _batch = np.expand_dims(encode_line(row[1]), axis=0)
+                _label = np.expand_dims([int(row[0])], axis=0)
+            except IndexError:
+                # empty line indicates end of post
+                continue
+            prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
+            accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
+            accuracies.append(accuracy)
     print(np.mean(accuracies))
 
     print('training...')
     for epoch in range(epochs):
         losses = []
-        for i, line in enumerate(lines):
-            label = labels[i]
-            _batch = np.expand_dims(line, axis=0)
-            _label = np.expand_dims(label, axis=0)
-            _, loss, prediction = sess.run(
-                    [train_step, loss_func, Y], feed_dict={X: _batch, Y_: _label})
-            losses.append(loss)
+        with _open('train_stackoverflow.csv') as csvfile:
+            train_data = csv.reader(csvfile)
+            for row in train_data:
+                try:
+                    # batch size = 1
+                    _batch = np.expand_dims(encode_line(row[1]), axis=0)
+                    _label = np.expand_dims([int(row[0])], axis=0)
+                except IndexError:
+                    # empty line, end of post
+                    continue
+                _, loss, prediction = sess.run(
+                        [train_step, loss_func, Y],
+                        feed_dict={X: _batch, Y_: _label})
+                losses.append(loss)
         if (not epoch) or (not (epoch + 1) % print_interval):
             print('\tloss: ', np.mean(losses))
-
     print('trained perfromance: ', end='')
     accuracies = []
     predictions= []
-    for i, line in enumerate(test_lines):
-        label = test_labels[i]
-        _batch = np.expand_dims(line, axis=0)
-        _label = np.expand_dims(label, axis=0)
-        prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
-        accuracy = (test_labels[i] == prediction.round()).all(axis=-1)
-        # accuracy = test_labels[i] == prediction.round()
-        accuracies.append(accuracy)
-        predictions.append(prediction)
+    with _open('test_stackoverflow.csv') as csvfile:
+        test_data = csv.reader(csvfile)
+        for row in test_data:
+            try:
+                # batch size = 1
+                _batch = np.expand_dims(encode_line(row[1]), axis=0)
+                _label = np.expand_dims([int(row[0])], axis=0)
+            except IndexError:
+                # empty line indicates end of post
+                continue
+            prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
+            accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
+            accuracies.append(accuracy)
+            predictions.append(prediction)
     print(np.mean(accuracies))
 
-for i, line in enumerate(test_lines):
-    input('press [enter] to view test posts')
-    print(
-        decode_line(line),
-        '\n',
-        test_labels[i],
-        [round(predictions[i][0][0] * 100, 1)])
+with _open('test_stackoverflow.csv') as csvfile:
+    test_data = csv.reader(csvfile)
+    for i, row in enumerate(test_data):
+        try:
+            input('press [enter] to view test posts')
+            print(
+                decode_line(row[1]),
+                '\n',
+                bool(int(row[0])),
+                [round(predictions[i][0][0] * 100, 1)])
+        except IndexError:
+            # empty line indicates end of post
+            continue
