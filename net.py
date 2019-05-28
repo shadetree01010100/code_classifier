@@ -37,7 +37,8 @@ H0_count = 80
 outputs = 1
 
 with tf.Session(config=config) as sess:
-    print('building model')
+    print('building model', end='')
+    start_time = time.monotonic()
     # tf.set_random_seed(1)
     # input, 1 line of line_length chars of one of char_classes
     X = tf.placeholder(tf.float32, [None, line_length, char_classes])
@@ -64,20 +65,35 @@ with tf.Session(config=config) as sess:
 
     loss_func = abs(Y_ - Y)
     train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss_func)
+    elapsed = round(time.monotonic() - start_time, 4)
+    print(' ({})'.format(elapsed))
 
-    print('tensorboarding the infidels')
+    print('setting up tensorboard', end='')
+    start_time = time.monotonic()
     summary_writer = tf.summary.FileWriter(
         './train/{}'.format(int(time.time())),
         sess.graph,
     )
+    elapsed = round(time.monotonic() - start_time, 4)
+    print(' ({})'.format(elapsed))
 
-    print('initializing variables')
+    print('initializing variables', end='')
+    start_time = time.monotonic()
     sess.run(tf.global_variables_initializer())
+    elapsed = round(time.monotonic() - start_time, 4)
+    print(' ({})'.format(elapsed))
 
-    print('pre-train benchmark: ', end='')
+    print()
     accuracies = []
+    trials = 0
+    print('opening test data', end='')
+    start_time = time.monotonic()
     with _open('test_stackoverflow.csv') as csvfile:
         test_data = csv.reader(csvfile)
+        elapsed = round(time.monotonic() - start_time, 4)
+        print(' ({})'.format(elapsed))
+        print('benchmarking', end='\r')
+        start_time = time.monotonic()
         for row in test_data:
             try:
                 # batch size = 1
@@ -89,13 +105,29 @@ with tf.Session(config=config) as sess:
             prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
-    print(np.mean(accuracies))
+            trials += 1
+    elapsed = round(time.monotonic() - start_time, 4)
+    print('benchmarking ({} ({} trials: {} avg.))'.format(
+        elapsed,
+        trials,
+        round(elapsed / trials, 4)))
+    print('pretrain benchmark: {}%'.format(
+        round(np.mean(accuracies) * 100, 3)))
 
-    print('training...')
+    print()
+    trials = 0
     for epoch in range(epochs):
         losses = []
+        if not epoch:
+            print('opening train data', end='')
+            start_time = time.monotonic()
         with _open('train_stackoverflow.csv') as csvfile:
             train_data = csv.reader(csvfile)
+            if not epoch:
+                elapsed = round(time.monotonic() - start_time, 4)
+                print(' ({})'.format(elapsed))
+                print('training', end='\r')
+            start_time = time.monotonic()
             for row in train_data:
                 try:
                     # batch size = 1
@@ -108,8 +140,20 @@ with tf.Session(config=config) as sess:
                         [train_step, loss_func, Y],
                         feed_dict={X: _batch, Y_: _label})
                 losses.append(loss)
-        if (not epoch) or (not (epoch + 1) % print_interval):
-            print('\tloss: ', np.mean(losses))
+                trials += 1
+        elapsed = round(time.monotonic() - start_time, 4)
+        print(
+            'training ({} (epoch {}/{}, {} trials: {} avg.))    '.format(
+                elapsed,
+                epoch + 1,
+                epochs,
+                trials,
+                round(elapsed / trials, 4),
+            end='\r',
+            flush=True,
+        ))
+
+    print()
     print('trained perfromance: ', end='')
     accuracies = []
     predictions= []
@@ -127,7 +171,7 @@ with tf.Session(config=config) as sess:
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
             predictions.append(prediction)
-    print(np.mean(accuracies))
+    print(round(np.mean(accuracies) * 100, 3))
     summary_writer.close()
 
 with _open('test_stackoverflow.csv') as csvfile:
