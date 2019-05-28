@@ -1,5 +1,6 @@
 import csv
 import os
+import time
 import numpy as np
 import tensorflow as tf
 
@@ -64,6 +65,12 @@ with tf.Session(config=config) as sess:
     loss_func = abs(Y_ - Y)
     train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss_func)
 
+    print('tensorboarding the infidels')
+    summary_writer = tf.summary.FileWriter(
+        './train/{}'.format(int(time.time())),
+        sess.graph,
+    )
+
     print('initializing variables')
     sess.run(tf.global_variables_initializer())
 
@@ -121,6 +128,7 @@ with tf.Session(config=config) as sess:
             accuracies.append(accuracy)
             predictions.append(prediction)
     print(np.mean(accuracies))
+    summary_writer.close()
 
 with _open('test_stackoverflow.csv') as csvfile:
     test_data = csv.reader(csvfile)
