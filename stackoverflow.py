@@ -1,10 +1,11 @@
 from urllib.request import urlopen
+from time import sleep
 from bs4 import BeautifulSoup
 
 
 class StackOverflowScraper():
 
-    lines_per_post = 50
+    lines_per_post = 120
     line_length = 80
     url_base = 'https://stackoverflow.com{}'
     section = '/tagged/python'
@@ -12,16 +13,20 @@ class StackOverflowScraper():
 
     page = 1
 
-    def next_batch(self):
-        """ Returns a matrix of labeled thread contents with shape:  
-        `[~100, <= lines_per_post, (True|False, <string>[:line_length])]`
+    def __init__(self, delay=None):
+        self.delay = delay
 
-        The dimension of `~100` assumes that each page has 50 threads, 
+    def next_batch(self, rate=None):
+        """ Returns a matrix of labeled thread contents with shape:
+        `[~100, <= lines_per_post, 1]`. The inner-most array contains
+        a tuple: `(True|False, <string>[:line_length])`.
+
+        The dimension of `~100` assumes that each page has 50 threads,
         and that for each thread the question and accepted answer
-        are labeled for use. Page size (threads) appears to be 
+        are labeled for use. Page size (threads) appears to be
         non-negotiable, and not every thread has an answer.
 
-        The first value of each line tuple indicates if the line is 
+        The first value of each line tuple indicates if the line is
         inside `<code></code>` tags.
         """
 
@@ -30,7 +35,7 @@ class StackOverflowScraper():
         output = []
 
         full_url = self.url_base.format(url)
-        print('scraping threads', full_url)
+        # print('scraping threads', full_url)
         contents = self._read_webpage(full_url)
         questions = contents.find_all('div', {'class': 'summary'})
         for question in questions:
@@ -62,6 +67,9 @@ class StackOverflowScraper():
                 output.append(answer)
             # else:
                 # print('no accepted answer')
+            if self.delay is not None:
+                # print('sleeping for {} seconds...'.format(self.delay))
+                sleep(self.delay)
         self.page += 1
         return output
 
