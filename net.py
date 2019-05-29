@@ -70,8 +70,6 @@ with tf.Session(config=config) as sess:
 
     print('setting up tensorboard', end='')
     start_time = time.monotonic()
-    tf.summary.scalar('loss', loss_func)
-    summaries = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(
         './train/{}'.format(int(time.time())),
         sess.graph,
@@ -118,6 +116,7 @@ with tf.Session(config=config) as sess:
 
     print()
     trials = 0
+    losses = []
     for epoch in range(epochs):
         if not epoch:
             print('opening train data', end='')
@@ -137,12 +136,18 @@ with tf.Session(config=config) as sess:
                 except IndexError:
                     # empty line, end of post
                     continue
-                summary, _, loss, prediction = sess.run(
-                    [summaries, train_step, loss_func, Y],
+                _, loss, prediction = sess.run(
+                    [train_step, loss_func, Y],
                     feed_dict={X: _batch, Y_: _label})
-                if trials % 1000 == 0:
-                    summary_writer.add_summary(summary, trials)
+                losses.append(loss)
                 trials += 1
+        average_loss = np.mean(losses)
+        summary = tf.Summary()
+        summary.value.add(
+            tag='average loss',
+            simple_value=average_loss)
+        summary_writer.add_summary(summary, trials)
+        losses = []
         elapsed = round(time.monotonic() - start_time, 4)
         print(
             'training ({} (epoch {}/{}, {} trials: {} avg.))    '.format(
