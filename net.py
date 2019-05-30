@@ -11,6 +11,12 @@ def _open(filename):
     """ Helper method to open(filename) with appropriate args."""
     return open(filename, newline='', encoding='utf-8')
 
+def _print(line='', newline=True, overwrite=False):
+    """ Helper method to print and update lines."""
+    end = '\n' if newline else ''
+    start = '\r' if overwrite else ''
+    print('{}{}'.format(start, line), end=end)
+
 # supress TF build info logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # Force compatability of convolution on RTX series GPU
@@ -25,11 +31,11 @@ char_classes = 96
 
 # RUN OPTIONS
 epochs = 20
-print_interval = 1
 
 # CNN LAYERS
-C0_depth = 4
-C0_width = 3
+# TODO: moar
+C0_depth = 16
+C0_width = 4
 C0_stride = 1
 
 # NN LAYERS
@@ -37,7 +43,7 @@ H0_count = 80
 outputs = 1
 
 with tf.Session(config=config) as sess:
-    print('building model', end='')
+    _print('building model ', newline=False)
     start_time = time.monotonic()
     # tf.set_random_seed(1)
     # input, 1 line of line_length chars of one of char_classes
@@ -46,8 +52,9 @@ with tf.Session(config=config) as sess:
     Y_ = tf.placeholder(tf.float32, [None, outputs])
 
     # convolutional layers
-    CW0 = tf.Variable(tf.truncated_normal([C0_width, char_classes, C0_depth]))
-    CB0 = tf.Variable(tf.truncated_normal([C0_depth]))
+    # TODO: should be small positive values?
+    CW0 = tf.Variable(tf.ones([C0_width, char_classes, C0_depth]) / 10)
+    CB0 = tf.Variable(tf.ones([C0_depth]) / 10)
     C0 = tf.nn.relu(tf.nn.conv1d(X, CW0, C0_stride, 'SAME') + CB0)
 
     # flatten for input to neural network layers
@@ -63,36 +70,36 @@ with tf.Session(config=config) as sess:
     B1 = tf.Variable(tf.truncated_normal([outputs]))
     Y = tf.nn.sigmoid(tf.matmul(H0, W1) + B1)
 
-    loss_func = tf.reduce_mean(abs(Y_ - Y))
+    loss_func = tf.losses.absolute_difference(Y_, Y)
     train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss_func)
     elapsed = round(time.monotonic() - start_time, 4)
-    print(' ({})'.format(elapsed))
+    _print('({})'.format(elapsed))
 
-    print('setting up tensorboard', end='')
+    _print('setting up tensorboard ', newline=False)
     start_time = time.monotonic()
     summary_writer = tf.summary.FileWriter(
         './train/{}'.format(int(time.time())),
         sess.graph,
     )
     elapsed = round(time.monotonic() - start_time, 4)
-    print(' ({})'.format(elapsed))
+    _print('({})'.format(elapsed))
 
-    print('initializing variables', end='')
+    _print('initializing variables ', newline=False)
     start_time = time.monotonic()
     sess.run(tf.global_variables_initializer())
     elapsed = round(time.monotonic() - start_time, 4)
-    print(' ({})'.format(elapsed))
+    print('({})'.format(elapsed))
 
-    print()
+    _print()
     accuracies = []
-    trials = 0
-    print('opening test data', end='')
+    batches = 0
+    _print('opening test data ', newline=False)
     start_time = time.monotonic()
     with _open('test_stackoverflow.csv') as csvfile:
         test_data = csv.reader(csvfile)
         elapsed = round(time.monotonic() - start_time, 4)
-        print(' ({})'.format(elapsed))
-        print('benchmarking', end='\r')
+        print('({})'.format(elapsed))
+        _print('benchmarking ', newline=False)
         start_time = time.monotonic()
         for row in test_data:
             try:
@@ -100,71 +107,82 @@ with tf.Session(config=config) as sess:
                 _batch = np.expand_dims(encode_line(row[1]), axis=0)
                 _label = np.expand_dims([int(row[0])], axis=0)
             except IndexError:
-                # empty line indicates end of post
+                # empty line at end of post
                 continue
             prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
-            trials += 1
-    elapsed = round(time.monotonic() - start_time, 4)
-    print('benchmarking ({} ({} trials: {} avg.))'.format(
-        elapsed,
-        trials,
-        round(elapsed / trials, 4)))
-    print('pretrain benchmark: {}%'.format(
-        round(np.mean(accuracies) * 100, 3)))
+            batches += 1
 
-    print()
-    trials = 0
+    elapsed = round(time.monotonic() - start_time, 4)
+    _print(
+        '({} ({} batches: {} avg.))'.format(
+            elapsed,
+            batches,
+            round(elapsed / batches, 4),
+        ),
+    )
+    _print(
+        'pretrain benchmark: {} % correct'.format(
+            round(np.mean(accuracies) * 100, 3),
+        ),
+    )
+
+    _print()
+    global_step = 0
     losses = []
     for epoch in range(epochs):
+        batches = 0
         if not epoch:
-            print('opening train data', end='')
+            _print('opening train data ', newline=False)
             start_time = time.monotonic()
         with _open('train_stackoverflow.csv') as csvfile:
             train_data = csv.reader(csvfile)
             if not epoch:
                 elapsed = round(time.monotonic() - start_time, 4)
-                print(' ({})'.format(elapsed))
-                print('training', end='\r')
+                _print('({})'.format(elapsed))
+                _print(
+                    'training epoch {}/{}'.format(epoch + 1, epochs),
+                    newline=False,
+                )
             start_time = time.monotonic()
+            lines = []
+            labels = []
             for row in train_data:
                 try:
-                    # batch size = 1
-                    _batch = np.expand_dims(encode_line(row[1]), axis=0)
-                    _label = np.expand_dims([int(row[0])], axis=0)
+                    lines.append(encode_line(row[1]))
+                    labels.append([int(row[0])])
                 except IndexError:
-                    # empty line, end of post
-                    continue
-                _, loss, prediction = sess.run(
-                    [train_step, loss_func, Y],
-                    feed_dict={X: _batch, Y_: _label})
-                losses.append(loss)
-                trials += 1
+                    # empty line at end of post, run the batch!
+                    _, loss, prediction = sess.run(
+                        [train_step, loss_func, Y],
+                        feed_dict={X: np.array(lines), Y_: np.array(labels)})
+                    losses.append(loss)
+                    # prepare for next batch
+                    lines = []
+                    labels = []
+                    batches += 1
         average_loss = np.mean(losses)
         summary = tf.Summary()
-        summary.value.add(
-            tag='average loss',
-            simple_value=average_loss)
-        summary_writer.add_summary(summary, trials)
+        summary.value.add(tag='average loss', simple_value=average_loss)
+        summary_writer.add_summary(summary, epoch + 1)
         losses = []
         elapsed = round(time.monotonic() - start_time, 4)
-        print(
-            'training ({} (epoch {}/{}, {} trials: {} avg.))    '.format(
-                elapsed,
+        _print(
+            'training epoch {}/{} ({}, {} avg. per batch)     '.format(
                 epoch + 1,
                 epochs,
-                trials,
-                round(elapsed / trials, 4),
-            end='\r',
-            flush=True,
-        ))
+                elapsed,
+                round(elapsed / batches, 4),
+            ),
+            newline=False,
+            overwrite=True,
+        )
     summary_writer.close()
 
-    print()
-    print('trained perfromance: ', end='')
+    _print()
+    _print('trained performance: ', newline=False)
     accuracies = []
-    predictions= []
     with _open('test_stackoverflow.csv') as csvfile:
         test_data = csv.reader(csvfile)
         for row in test_data:
@@ -173,25 +191,11 @@ with tf.Session(config=config) as sess:
                 _batch = np.expand_dims(encode_line(row[1]), axis=0)
                 _label = np.expand_dims([int(row[0])], axis=0)
             except IndexError:
-                # empty line indicates end of post
+                # empty line at end of post
                 continue
             prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
-            predictions.append(prediction)
-    print(round(np.mean(accuracies) * 100, 3))
+            batches += 1
+    _print('{} % correct'.format(round(np.mean(accuracies) * 100, 3)))
     summary_writer.close()
-
-with _open('test_stackoverflow.csv') as csvfile:
-    test_data = csv.reader(csvfile)
-    for i, row in enumerate(test_data):
-        try:
-            input('press [enter] to view test posts')
-            print(
-                decode_line(row[1]),
-                '\n',
-                bool(int(row[0])),
-                [round(predictions[i][0][0] * 100, 1)])
-        except IndexError:
-            # empty line indicates end of post
-            continue
