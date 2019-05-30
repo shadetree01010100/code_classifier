@@ -19,7 +19,10 @@ with open(train_filename, newline='', encoding='utf-8') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
         total += 1
-        is_code = int(row[0])
+        try:
+            is_code = int(row[0])
+        except IndexError:
+            continue
         if is_code:
             yes += 1
         else:
@@ -53,7 +56,10 @@ with open(test_filename, newline='', encoding='utf-8') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
         total += 1
-        is_code = int(row[0])
+        try:
+            is_code = int(row[0])
+        except IndexError:
+            continue
         if is_code:
             yes += 1
         else:
