@@ -15,7 +15,7 @@ def _print(line='', newline=True, overwrite=False):
     """ Helper method to print and update lines."""
     end = '\n' if newline else ''
     start = '\r' if overwrite else ''
-    print('{}{}'.format(start, line), end=end)
+    print('{}{}'.format(start, line), end=end, flush=True)
 
 # supress TF build info logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -26,11 +26,12 @@ config.gpu_options.allow_growth = True
 
 # CNN CONFIG
 # INPUT OPTIONS
-line_length = 80
-char_classes = 96
+line_length = LINE_LENGTH
+char_classes = NUM_CHARS
 
 # RUN OPTIONS
 epochs = 20
+learning_rate = 0.001
 
 # CNN LAYERS
 # TODO: moar
@@ -42,9 +43,13 @@ C0_stride = 1
 H0_count = 80
 outputs = 1
 
-with tf.Session(config=config) as sess:
+session = tf.Session(config=config)
+with session:
+    ### debug ###
     _print('building model ', newline=False)
     start_time = time.monotonic()
+    ### debug ###
+
     # tf.set_random_seed(1)
     # input, 1 line of line_length chars of one of char_classes
     X = tf.placeholder(tf.float32, [None, line_length, char_classes])
@@ -52,7 +57,6 @@ with tf.Session(config=config) as sess:
     Y_ = tf.placeholder(tf.float32, [None, outputs])
 
     # convolutional layers
-    # TODO: should be small positive values?
     CW0 = tf.Variable(tf.ones([C0_width, char_classes, C0_depth]) / 10)
     CB0 = tf.Variable(tf.ones([C0_depth]) / 10)
     C0 = tf.nn.relu(tf.nn.conv1d(X, CW0, C0_stride, 'SAME') + CB0)
@@ -70,37 +74,56 @@ with tf.Session(config=config) as sess:
     B1 = tf.Variable(tf.truncated_normal([outputs]))
     Y = tf.nn.sigmoid(tf.matmul(H0, W1) + B1)
 
+    # setup training
     loss_func = tf.losses.absolute_difference(Y_, Y)
-    train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss_func)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    train_step = optimizer.minimize(loss_func)
+
+    ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
     _print('({})'.format(elapsed))
-
     _print('setting up tensorboard ', newline=False)
     start_time = time.monotonic()
+    ### debug ###
+
     summary_writer = tf.summary.FileWriter(
         './train/{}'.format(int(time.time())),
-        sess.graph,
+        session.graph,
     )
+
+    ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
     _print('({})'.format(elapsed))
-
     _print('initializing variables ', newline=False)
     start_time = time.monotonic()
-    sess.run(tf.global_variables_initializer())
+    ### debug ###
+
+    session.run(tf.global_variables_initializer())
+
+    ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
     print('({})'.format(elapsed))
-
     _print()
+    ### debug ###
+
     accuracies = []
     batches = 0
+
+    ### debug ###
     _print('opening test data ', newline=False)
     start_time = time.monotonic()
+    ### debug ###
+
     with _open('test_stackoverflow.csv') as csvfile:
         test_data = csv.reader(csvfile)
         elapsed = round(time.monotonic() - start_time, 4)
+
+        ### debug ###
         print('({})'.format(elapsed))
         _print('benchmarking ', newline=False)
         start_time = time.monotonic()
+        ### debug ###
+
         for row in test_data:
             try:
                 # batch size = 1
@@ -109,11 +132,12 @@ with tf.Session(config=config) as sess:
             except IndexError:
                 # empty line at end of post
                 continue
-            prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
+            prediction = session.run(Y, feed_dict={X: _batch, Y_: _label})
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
             batches += 1
 
+    ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
     _print(
         '({} ({} batches: {} avg.))'.format(
@@ -127,25 +151,34 @@ with tf.Session(config=config) as sess:
             round(np.mean(accuracies) * 100, 3),
         ),
     )
-
     _print()
+    ### debug ###
+
     global_step = 0
     losses = []
     for epoch in range(epochs):
         batches = 0
+
+        ### debug ###
         if not epoch:
             _print('opening train data ', newline=False)
             start_time = time.monotonic()
+        ### debug ###
+
         with _open('train_stackoverflow.csv') as csvfile:
             train_data = csv.reader(csvfile)
+
+            ### debug ###
             if not epoch:
                 elapsed = round(time.monotonic() - start_time, 4)
                 _print('({})'.format(elapsed))
                 _print(
-                    'training epoch {}/{}'.format(epoch + 1, epochs),
+                    'training epoch {}/{} '.format(epoch + 1, epochs),
                     newline=False,
                 )
             start_time = time.monotonic()
+            ### debug ###
+
             lines = []
             labels = []
             for row in train_data:
@@ -154,7 +187,7 @@ with tf.Session(config=config) as sess:
                     labels.append([int(row[0])])
                 except IndexError:
                     # empty line at end of post, run the batch!
-                    _, loss, prediction = sess.run(
+                    _, loss, prediction = session.run(
                         [train_step, loss_func, Y],
                         feed_dict={X: np.array(lines), Y_: np.array(labels)})
                     losses.append(loss)
@@ -167,6 +200,8 @@ with tf.Session(config=config) as sess:
         summary.value.add(tag='average loss', simple_value=average_loss)
         summary_writer.add_summary(summary, epoch + 1)
         losses = []
+
+        ### debug ###
         elapsed = round(time.monotonic() - start_time, 4)
         _print(
             'training epoch {}/{} ({}, {} avg. per batch)     '.format(
@@ -178,6 +213,8 @@ with tf.Session(config=config) as sess:
             newline=False,
             overwrite=True,
         )
+        ### debug ###
+
     summary_writer.close()
 
     _print()
@@ -193,7 +230,7 @@ with tf.Session(config=config) as sess:
             except IndexError:
                 # empty line at end of post
                 continue
-            prediction = sess.run(Y, feed_dict={X: _batch, Y_: _label})
+            prediction = session.run(Y, feed_dict={X: _batch, Y_: _label})
             accuracy = ([int(row[0])] == prediction.round()).all(axis=-1)
             accuracies.append(accuracy)
             batches += 1
