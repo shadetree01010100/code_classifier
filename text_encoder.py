@@ -1,8 +1,10 @@
+LINE_LENGTH = 80
+NUM_CHARS = 96
 
-def encode_line(text, line_length=80):
+def encode_line(text, line_length=LINE_LENGTH):
     temp = [encode_char(ord(t) - 32) for t in text[:line_length]]
-    for _ in range(line_length - len(temp)):
-        temp.append(encode_char(95)) # padding
+    for _ in range(line_length - len(temp)):  # padding
+        temp.append(encode_char(NUM_CHARS - 1))
     return temp
 
 def decode_line(text):
@@ -14,7 +16,7 @@ def decode_line(text):
     return ''.join(temp)
 
 def encode_char(x):
-    q = [0] * 96
+    q = [0] * NUM_CHARS
     try:
         q[x] = 1
     except IndexError:
