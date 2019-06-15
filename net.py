@@ -11,11 +11,23 @@ def _open(filename):
     """ Helper method to open(filename) with appropriate args."""
     return open(filename, newline='', encoding='utf-8')
 
+_last_length = 0
 def _print(line='', newline=True, overwrite=False):
     """ Helper method to print and update lines."""
-    end = '\n' if newline else ''
-    start = '\r' if overwrite else ''
-    print('{}{}'.format(start, line), end=end, flush=True)
+    _last_length = len(line)
+    end = '\n'
+    start = ''
+    padding = ''
+    if not newline:
+        end = ''
+    if overwrite:
+        start = '\r'
+        if len(line) < _last_length:
+            # clear previous line completely
+            padding = ' ' * _last_length
+            print('\r' + padding, end='', flush=True)
+    msg = start + line
+    print(msg, end=end, flush=True)
 
 # supress TF build info logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -35,7 +47,7 @@ learning_rate = 0.001
 
 # CNN LAYERS
 # TODO: moar
-C0_depth = 16
+C0_depth = 64
 C0_width = 4
 C0_stride = 1
 
@@ -43,8 +55,7 @@ C0_stride = 1
 H0_count = 80
 outputs = 1
 
-session = tf.Session(config=config)
-with session:
+with tf.Session(config=config) as session:
     ### debug ###
     _print('building model ', newline=False)
     start_time = time.monotonic()
@@ -86,14 +97,15 @@ with session:
     start_time = time.monotonic()
     ### debug ###
 
+    run_label = int(time.time())
     summary_writer = tf.summary.FileWriter(
-        './train/{}'.format(int(time.time())),
+        './train/{}'.format(run_label),
         session.graph,
     )
 
     ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
-    _print('({})'.format(elapsed))
+    _print('({}, run \"{}\")'.format(elapsed, run_label))
     _print('initializing variables ', newline=False)
     start_time = time.monotonic()
     ### debug ###
@@ -140,7 +152,7 @@ with session:
     ### debug ###
     elapsed = round(time.monotonic() - start_time, 4)
     _print(
-        '({} ({} batches: {} avg.))'.format(
+        '({} ({} lines: {} avg.))'.format(
             elapsed,
             batches,
             round(elapsed / batches, 4),
@@ -179,6 +191,8 @@ with session:
             start_time = time.monotonic()
             ### debug ###
 
+            _batch_size = 1
+            _batch_count = 0
             lines = []
             labels = []
             for row in train_data:
@@ -186,12 +200,16 @@ with session:
                     lines.append(encode_line(row[1]))
                     labels.append([int(row[0])])
                 except IndexError:
-                    # empty line at end of post, run the batch!
+                    # empty line at end of post
+                    _batch_count += 1
+                    if _batch_count < _batch_size:
+                        continue
                     _, loss, prediction = session.run(
                         [train_step, loss_func, Y],
                         feed_dict={X: np.array(lines), Y_: np.array(labels)})
                     losses.append(loss)
                     # prepare for next batch
+                    _batch_count = 0
                     lines = []
                     labels = []
                     batches += 1
@@ -204,8 +222,8 @@ with session:
         ### debug ###
         elapsed = round(time.monotonic() - start_time, 4)
         _print(
-            'training epoch {}/{} ({}, {} avg. per batch)     '.format(
-                epoch + 1,
+            'training epoch {}/{} ({}, {} avg. per batch)'.format(
+                min(epoch + 2, epochs),
                 epochs,
                 elapsed,
                 round(elapsed / batches, 4),
