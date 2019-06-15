@@ -1,9 +1,9 @@
 LINE_LENGTH = 80
 NUM_CHARS = 96
 
-def encode_line(text, line_length=LINE_LENGTH):
-    temp = [encode_char(ord(t) - 32) for t in text[:line_length]]
-    for _ in range(line_length - len(temp)):  # padding
+def encode_line(text):
+    temp = [encode_char(ord(t) - 32) for t in text[:LINE_LENGTH]]
+    for _ in range(LINE_LENGTH - len(temp)):  # padding
         temp.append(encode_char(NUM_CHARS - 1))
     return temp
 
